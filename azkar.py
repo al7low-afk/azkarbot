@@ -1,38 +1,34 @@
 import os
-import asyncio
-import random
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+import aiohttp
 from aiohttp import web
+import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import (
-    Message, ReplyKeyboardMarkup, KeyboardButton,
+    Message, ReplyKeyboardMarkup, KeyboardButton, InputMediaPhoto,
     InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
-    LabeledPrice, PreCheckoutQuery
+    LabeledPrice, PreCheckoutQuery, BufferedInputFile
 )
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
-log = logging.getLogger("azkar-bot")
+log = logging.getLogger("tiktok-bot")
 
-AZKAR_TOKEN = "8969387100:AAFPMrP7ZEQwKmROZO-56BT-QtG_tt-iAd8"
-CHANNEL = "@azkar201"
-TIMEZONE = ZoneInfo("Asia/Dubai")
+TIKTOK_TOKEN = "8695837050:AAGtGtmr8kCUfE1N1DMnsa89lHBG1y7BRBI"
+CHANNELS = ["@azkar201", "@Sermon10"]
 
-bot = Bot(AZKAR_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(TIKTOK_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-AZKAR_MENU = ReplyKeyboardMarkup(
+MAIN_MENU = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🌅 أذكار الصباح"), KeyboardButton(text="🌇 أذكار المساء")],
-        [KeyboardButton(text="🕌 أذكار بعد الصلاة"), KeyboardButton(text="😴 أذكار النوم")],
-        [KeyboardButton(text="📿 تسبيح"), KeyboardButton(text="🌟 إرسال هدية (نجوم) 🌟")],
+        [KeyboardButton(text="🌟 إرسال هدية (نجوم) 🌟")],
+        [KeyboardButton(text="ℹ️ نبذة عن البوت"), KeyboardButton(text="📞 تواصل مع المطور")],
     ],
     resize_keyboard=True,
-    input_field_placeholder="اختر قسم الأذكار",
+    input_field_placeholder="أرسل رابط تيك توك للتحميل",
 )
 
 STARS_KEYBOARD = InlineKeyboardMarkup(
@@ -44,47 +40,79 @@ STARS_KEYBOARD = InlineKeyboardMarkup(
     ]
 )
 
-AZKAR_TEXTS = {
-    "🌅 أذكار الصباح": "🌅 <b>أذكار الصباح</b>\n\nأصبحنا وأصبح الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير.",
-    "🌇 أذكار المساء": "🌇 <b>أذكار المساء</b>\n\nأمسينا وأمسى الملك لله، والحمد لله، لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير.",
-    "🕌 أذكار بعد الصلاة": "🕌 <b>أذكار بعد الصلاة</b>\n\nأستغفر الله (3 مرات)\nاللهم أنت السلام ومنك السلام تباركت يا ذا الجلال والإكرام.",
-    "😴 أذكار النوم": "😴 <b>أذكار النوم</b>\n\nباسمك اللهم أموت وأحيا.",
-}
+def get_subscription_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 قناة azkar201", url="https://t.me/azkar201")],
+            [InlineKeyboardButton(text="🚀 قناة Sermon10", url="https://t.me/Sermon10")],
+            [InlineKeyboardButton(text="✅ تحقق من الاشتراك", callback_data="check_sub")]
+        ]
+    )
 
-DAILY_AZKAR_AND_DUAS = [
-    "سبحان الله وبحمده، سبحان الله العظيم.",
-    "لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير.",
-    "أستغفر الله العظيم الذي لا إله إلا هو الحي القيوم وأتوب إليه.",
-    "لا حول ولا قوة إلا بالله العلي العظيم.",
-    "سُبْحَانَ اللَّهِ، وَالْحَمْدُ لِلَّهِ، وَلَا إِلَهَ إِلَّا اللَّهُ، وَاللَّهُ أَكْبَرُ.",
-    "اللَّهُمَّ إنِّي أسألُكَ العافيةَ في الدنيا والآخرة.",
-    "رَبِّ اغْفِر لي وَتُبْ عَلَيَّ إنَّكَ أنتَ التَّوَّابُ الرَّحيمُ.",
-    "يا حي يا قيوم برحمتك أستغيث، أصلح لي شاني كله ولا تكلني إلى نفسي طرفة عين.",
-    "لَا إِلَهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِينَ.",
-    "رَبنا آتنا في الدنيا حسنة وفي الآخرة حسنة وقنا عذاب النار.",
-    "حسبنا الله ونعم الوكيل، نعم المولى ونعم النصير.",
-    "رضيت بالله رباً، وبالإسلام ديناً، وبمحمد صلى الله عليه وسلم نبياً ورسولاً.",
-    "اللهم إني أسألك علماً نافعاً، ورزقاً طيباً، وعملاً متقبلاً.",
-    "ربنا لا تزغ قلوبنا بعد إذ هديتنا وهب لنا من لدنك رحمة إنك أنت الوهاب.",
-]
+async def is_subscribed(user_id: int) -> bool:
+    try:
+        for channel in CHANNELS:
+            member = await bot.get_chat_member(channel, user_id)
+            if member.status not in ("member", "administrator", "creator"):
+                return False
+        return True
+    except Exception as e:
+        log.error(f"Error checking subscription: {e}")
+        return False
 
-SALAWAT_MESSAGES = [
-    "إِنَّ اللَّهَ وَمَلَائِكَتَهُ يُصَلُّونَ على النَّبِيِّ يَا أَيُّهَا الَّذِينَ آمَنُوا صَلَُّوا عَلَيْهِ وَسَلِّمُوا تَسْلِيماً 🤍\n\nاللهم صلِ وسلّم وبارك على نبينا محمد وعلى آله وصحبه أجمعين.",
-    "صلى الله عليه وسلم تسليماً كثيراً عدد ما ذكره الذاكرون وغفل عن ذكره الغافلون ✨",
-    "اللهم صلِ على محمد وعلى آل محمد كما صليت على إبراهيم وعلى آل إبراهيم إنك حميد مجيد 🕊️",
-]
+def get_welcome_text():
+    return (
+        "أهلاً بك في بوت تحميل تيك توك 🚀\n\n"
+        "🤖 **مميزات البوت:**\n"
+        "• تحميل المقاطع والصور بدون علامة مائية.\n"
+        "• جلب الوصف (الكابشن) الأصلي للفيديو.\n"
+        "• سرعة فائقة في التحميل.\n\n"
+        "🔗 **أرسل أي رابط تيك توك الآن للبدء!**"
+    )
 
 @dp.message(Command("start"))
-async def azkar_start(message: Message):
-    await message.answer("أهلاً بك في بوت الأذكار والأدعية 🕌\nاختر القسم المناسب من الأزرار أدناه:", reply_markup=AZKAR_MENU)
+async def start_cmd(message: Message):
+    if not message.from_user:
+        return
+    if not await is_subscribed(message.from_user.id):
+        sub_text = "❌ **عذراً عزيزي!**\nلا يمكنك استخدام البوت إلا بعد الاشتراك في قنواتنا. يرجى الاشتراك من الأزرار بالأسفل ثم الضغط على 'تحقق من الاشتراك'."
+        await message.answer(sub_text, reply_markup=get_subscription_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    await message.answer(get_welcome_text(), reply_markup=MAIN_MENU, parse_mode=ParseMode.MARKDOWN)
 
-@dp.message(F.text == "📿 تسبيح")
-async def azkar_tasbeeh(message: Message):
-    await message.answer("📿 سبحان الله، والحمد لله، ولا إله إلا الله، والله أكبر.", reply_markup=AZKAR_MENU)
+@dp.callback_query(F.data == "check_sub")
+async def check_subscription_callback(callback: CallbackQuery):
+    if await is_subscribed(callback.from_user.id):
+        await callback.message.delete()
+        await callback.message.answer("✅ **تم التحقق بنجاح! شكراً لاشتراكك.**", parse_mode=ParseMode.MARKDOWN)
+        await callback.message.answer(get_welcome_text(), reply_markup=MAIN_MENU, parse_mode=ParseMode.MARKDOWN)
+    else:
+        await callback.answer("❌ لم تقم بالاشتراك في جميع القنوات، اشترك ثم حاول مجدداً!", show_alert=True)
+
+@dp.message(F.text == "ℹ️ نبذة عن البوت")
+async def show_about(message: Message):
+    about_text = (
+        "ماذا يمكن لهذا البوت فعله؟\n"
+        "• تحميل مقاطع وصور تيك توك بجودة عالية.\n"
+        "• التحميل بدون علامة مائية نهائياً.\n"
+        "• جلب الوصف (الكابشن) الأصلي المرفق مع المقطع.\n"
+        "• سرعة فائقة في التحميل وإرسال الفيديو."
+    )
+    await message.answer(about_text, parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(F.text == "📞 تواصل مع المطور")
+async def contact_developer(message: Message):
+    dev_text = (
+        "👨‍💻 **للتواصل مع مطور البوت:**\n\n"
+        "لأي استفسارات، اقتراحات، أو الإبلاغ عن مشكلة، يمكنك مراسلتي عبر المعرف التالي:\n"
+        "👉 @no3zzz" 
+    )
+    await message.answer(dev_text, parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(F.text == "🌟 إرسال هدية (نجوم) 🌟")
 async def show_stars_options(message: Message):
-    await message.answer("اختر عدد النجوم التي ترغب بإهدائها لدعم بوت الأذكار والقناة 🎁:", reply_markup=STARS_KEYBOARD)
+    await message.answer("اختر عدد النجوم التي ترغب بإهدائها لدعم البوت والمطور 🎁:", reply_markup=STARS_KEYBOARD)
 
 @dp.callback_query(F.data.startswith("gift_stars_"))
 async def process_gift_stars(callback: CallbackQuery):
@@ -94,8 +122,8 @@ async def process_gift_stars(callback: CallbackQuery):
     await bot.send_invoice(
         chat_id=callback.from_user.id,
         title=f"إرسال {stars_amount} نجمة 🌟",
-        description=f"دعم بوت الأذكار بـ {stars_amount} من نجوم تيليجرام!",
-        payload=f"azkar_gift_{stars_amount}_stars",
+        description=f"دعم البوت والمطور بـ {stars_amount} من نجوم تيليجرام!",
+        payload=f"tiktok_gift_{stars_amount}_stars",
         currency="XTR",
         prices=prices,
     )
@@ -107,37 +135,94 @@ async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: Message):
-    await message.answer("❤️ جزاك الله خيراً وجعل هذا الدعم والهدايا في ميزان حسناتك.")
+    await message.answer("❤️ شكراً جزيلاً لك على دعمك وهديتك القيمة!")
 
-@dp.message(F.text.in_(list(AZKAR_TEXTS.keys())))
-async def azkar_section(message: Message):
-    await message.answer(AZKAR_TEXTS[message.text], reply_markup=AZKAR_MENU)
+@dp.message(F.text)
+async def download_tiktok(message: Message):
+    if not message.text or not message.from_user:
+        return
+        
+    if not await is_subscribed(message.from_user.id):
+        sub_text = "❌ **عذراً!** لا يمكنك التحميل قبل الاشتراك في القنوات:"
+        await message.answer(sub_text, reply_markup=get_subscription_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
 
-async def automated_poster():
-    last_salawat_time = datetime.now(TIMEZONE) - timedelta(days=3)
+    url = message.text.strip()
+    if url.startswith("/"):
+        return
+    if "tiktok.com" not in url.lower():
+        await message.answer("⚠️ يرجى إرسال رابط تيك توك صحيح.", reply_markup=MAIN_MENU)
+        return
 
-    while True:
-        await asyncio.sleep(7200)  # انتظار ساعتين
+    status = await message.answer("⏳ جارٍ التحميل...")
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.tikwm.com/"
+        }
+        async with aiohttp.ClientSession(headers=headers) as session:
+            video_url = ""
+            title = "تحميل ناجح 🚀"
+            images = []
+            music_url = ""
 
-        try:
-            now = datetime.now(TIMEZONE)
-            is_friday = (now.weekday() == 4)
-            time_passed = (now - last_salawat_time).total_seconds() >= 259200
+            # الطلب من موقع TikWM
+            async with session.post("https://www.tikwm.com/api/", data={"url": url}, timeout=20) as resp:
+                data = await resp.json(content_type=None)
+                if data and data.get("code") == 0 and data.get("data"):
+                    item = data["data"]
+                    title = item.get("title", "تحميل ناجح 🚀")
+                    images = item.get("images", [])
+                    video_url = item.get("play") or item.get("wmplay") or ""
+                    music_url = item.get("music") or ""
 
-            if is_friday or time_passed:
-                await bot.send_message(chat_id=CHANNEL, text=random.choice(SALAWAT_MESSAGES))
-                log.info("تم نشر الصلاة على النبي ﷺ في القناة.")
-                last_salawat_time = now
+            # الاحتياطي عبر Cobalt لو Tikwm ما رد
+            if not video_url and not images:
+                async with session.post(
+                    "https://api.cobalt.tools/api/json",
+                    json={"url": url},
+                    headers={"Accept": "application/json", "Content-Type": "application/json"},
+                    timeout=20
+                ) as c_resp:
+                    c_data = await c_resp.json(content_type=None)
+                    if c_data and c_data.get("status") in ("stream", "redirect", "picker"):
+                        video_url = c_data.get("url") or (c_data.get("picker", [{}])[0].get("url") if c_data.get("picker") else "")
 
-            await bot.send_message(chat_id=CHANNEL, text=random.choice(DAILY_AZKAR_AND_DUAS))
-            log.info("تم نشر ذكر/دعاء في القناة.")
+            if video_url or images:
+                if video_url and video_url.startswith("/"):
+                    video_url = f"https://www.tikwm.com{video_url}"
+                if music_url and music_url.startswith("/"):
+                    music_url = f"https://www.tikwm.com{music_url}"
 
-        except Exception as e:
-            log.error(f"خطأ في النشر التلقائي: {e}")
+                if images:
+                    await status.edit_text("📸 جارٍ إرسال الصور...")
+                    media_group = [InputMediaPhoto(media=img, caption=title[:1024] if i == 0 else None, parse_mode=None) for i, img in enumerate(images[:10])]
+                    await message.answer_media_group(media_group)
+                    if music_url:
+                        async with session.get(music_url, timeout=20) as m_resp:
+                            if m_resp.status == 200:
+                                audio_bytes = await m_resp.read()
+                                await message.answer_audio(audio=BufferedInputFile(audio_bytes, filename="audio.mp3"), caption="🎵 الصوت المصاحب للصور")
+                elif video_url:
+                    await status.edit_text("🎥 جارٍ إرسال الفيديو...")
+                    try:
+                        await message.answer_video(video=video_url, caption=title[:1024], parse_mode=None, supports_streaming=True)
+                    except Exception:
+                        async with session.get(video_url, timeout=35) as v_resp:
+                            if v_resp.status == 200:
+                                video_bytes = await v_resp.read()
+                                await message.answer_video(video=BufferedInputFile(video_bytes, filename="tiktok.mp4"), caption=title[:1024], parse_mode=None, supports_streaming=True)
+                            else:
+                                raise Exception("Failed to fetch video stream")
+                await status.delete()
+            else:
+                await status.edit_text("❌ تعذّر جلب البيانات. تأكد من أن الرابط صحيح وأن المقطع عام.")
+    except Exception as e:
+        log.error(f"Download error: {e}")
+        await status.edit_text("❌ حدث خطأ أثناء التحميل.")
 
-# --- جزء السيرفر الوهمي لإرضاء منصة Render ---
 async def handle_ping(request):
-    return web.Response(text="Azkar Bot is running 24/7!")
+    return web.Response(text="Bot is running 24/7!")
 
 async def start_web_server():
     app = web.Application()
@@ -151,12 +236,10 @@ async def start_web_server():
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🚀 بوت الأذكار والأدعية يعمل بكفاءة تامة!")
-    
+    print("🚀 البوت شغال الآن!")
     await asyncio.gather(
         start_web_server(),
-        dp.start_polling(bot),
-        automated_poster()
+        dp.start_polling(bot)
     )
 
 if __name__ == "__main__":
