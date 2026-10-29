@@ -3,6 +3,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -24,7 +25,6 @@ TIMEZONE = ZoneInfo("Asia/Dubai")
 bot = Bot(AZKAR_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# الأزرار التفاعلية للبوت (تظهر للمستخدم عند محادثة البوت شخصياً)
 AZKAR_MENU = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🌅 أذكار الصباح"), KeyboardButton(text="🌇 أذكار المساء")],
@@ -51,7 +51,6 @@ AZKAR_TEXTS = {
     "😴 أذكار النوم": "😴 <b>أذكار النوم</b>\n\nباسمك اللهم أموت وأحيا.",
 }
 
-# قائمة الأذكار والأدعية الصافية التي تُرسل للقناة مباشرة بدون عناوين
 DAILY_AZKAR_AND_DUAS = [
     "سبحان الله وبحمده، سبحان الله العظيم.",
     "لا إله إلا الله وحده لا شريك له، له الملك وله الحمد، وهو على كل شيء قدير.",
@@ -114,7 +113,6 @@ async def successful_payment_handler(message: Message):
 async def azkar_section(message: Message):
     await message.answer(AZKAR_TEXTS[message.text], reply_markup=AZKAR_MENU)
 
-# حلقة النشر التلقائي للقناة (ترسل النص صافي وبدون أي عناوين فوقه)
 async def automated_poster():
     last_salawat_time = datetime.now(TIMEZONE) - timedelta(days=3)
 
@@ -123,8 +121,6 @@ async def automated_poster():
 
         try:
             now = datetime.now(TIMEZONE)
-            
-            # 1. الصلاة على النبي (كل 3 أيام أو يوم الجمعة)
             is_friday = (now.weekday() == 4)
             time_passed = (now - last_salawat_time).total_seconds() >= 259200
 
@@ -133,18 +129,32 @@ async def automated_poster():
                 log.info("تم نشر الصلاة على النبي ﷺ في القناة.")
                 last_salawat_time = now
 
-            # 2. إرسال الذكر أو الدعاء مباشرة بدون أي عناوين أو تصنيفات
             await bot.send_message(chat_id=CHANNEL, text=random.choice(DAILY_AZKAR_AND_DUAS))
             log.info("تم نشر ذكر/دعاء في القناة.")
 
         except Exception as e:
             log.error(f"خطأ في النشر التلقائي: {e}")
 
+# --- جزء السيرفر الوهمي لإرضاء منصة Render ---
+async def handle_ping(request):
+    return web.Response(text="Azkar Bot is running 24/7!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    log.info(f"🌐 Web server started on port {port}")
+
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     print("🚀 بوت الأذكار والأدعية يعمل بكفاءة تامة!")
     
     await asyncio.gather(
+        start_web_server(),
         dp.start_polling(bot),
         automated_poster()
     )
